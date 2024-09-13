@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LRU Cache IndexedDB demo app</title>
+    <style type="text/css">
+      .menu-grid {
+        display: grid; 
+        grid-template-columns: auto auto; 
+        column-gap: 1em; 
+        row-gap: 0.5em; 
+        justify-items: flex-start; 
+        background-color: lightgray; 
+        padding: 1em;
+      }
+      .left-menu {
+        display: flex;
+        flex-direction: column;
+      }
+      .create-submit-row {
+        display: flex;
+        column-gap: 1em;
+      }
+      .create-submit-row>div {
+        display: flex;
+        column-gap: 0.2em;
+      }
+      .cache-grid {
+        display: grid;
+        grid-template-columns: repeat(4, auto);
+        column-gap: 1em; 
+        row-gap: 0.5em; 
+        justify-items: flex-start; 
+      }
+      .cache-grid>.grid-header {
+          font-weight: bold;
+      }
+      .cache-add-row {
+        display: flex;
+        column-gap: 1.5em;
+        padding-bottom: 1em;
+      }
+      .cache-size-row {
+        display: flex;
+        column-gap: 0.5em;
+        padding-bottom: 1em;
+      }
+      .cache-size-row>button {
+        margin-left: 1em;
+      }
+      .cache-add-form {
+        display: flex;
+        column-gap: 0.5em;
+      }
+
+      .cache-add-form>input[type=number] {
+        max-width: 5em;
+      }
+      /*
+      .config-grid {
+        display: grid;
+        grid-template-columns: auto auto;
+        column-gap: 1em; 
+        row-gap: 0.5em; 
+        justify-items: flex-start; 
+      }
+        */
+    </style>
+</head>
+<body>
+    <h1>LRU Cache IndexedDB demo app</h1>
+    <div style="display: flex; column-gap: 3em;"> 
+      <!--left menu-->
+      <div>
+        <div class="left-menu">
+          <h2>Create cache</h2>
+          <!--config menu-->
+          <div class="menu-grid">
+            <div title="IndexedDB database name">Database:</div><div title="IndexedDB database name"><input id="db" type="text" placeholder="database name" value="LruIdbItemsCache"></div>
+            <div title="Capacity of the cache">Max items:</div><div title="Capacity of the cache"><input id="maxItems" type="number" min="1" value="10" placeholder="Capacity of the cache"></div>
+            <div title="Time period before persisting new entries">Persistence period (ms):</div><div><input id="persistenceInterval" type="number" min="0" value="20000" placeholder="Time period before persisting new entries"></div>
+            <div title="Time period before evicting old entries">Eviction period (ms):</div><div><input id="evictionInterval" type="number" min="0" value="10000" placeholder="Time period before evicting old entries"></div>
+            <div title="How many items to keep in memory. Set to 0 to disable the memory cache">Memory capacity</div><div title="How many items to keep in memory. Set to 0 to disable the memory cache">
+                  <input id="maxMemory" type="number" min="0" value="5" placeholder="How many items to keep in memory"></div>
+            <div></div><div class="create-submit-row">
+              <button id="createBtn" style="cursor: pointer;">Create new cache</button>
+              <div title="Select whether data in the currently active cache shall be deleted or kept." >
+                <input id="createClear" type="checkbox" checked="checked">
+                <div>Clear data?</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="cacheConfig">
+
+        </div>
+      </div>
+      <!--Cache menu (right) TODO -->
+      <div id="cacheViz">
+        <!-- TODO show information about the cache here, and options to add/delete/clear, get/use => change order -->
+      </div>
+
+    </div>
+    <script type="module">
+      import { createCacheIdb } from /*"https://unpkg.com/lru-cache-idb@latest/dist/cache.js"*/ "./dist/cache.js";
+
+      let cache = undefined;
+      let updateTimer = undefined;
+
+      function clear(el) {
+        while(el?.firstChild)
+          el.firstChild.remove();
+      }
+
+      function create(tag, options) {
+        const el = document.createElement(tag);
+        if (options?.text) {
+          if (el instanceof HTMLInputElement)
+            el.value = options?.text;
+          else
+            el.textContent = options?.text;
+        }
+        if (el instanceof HTMLInputElement && options?.type)
+          el.type = options.type;
+        options?.classes?.forEach(cl => el.classList.add(cl));
+        if (options?.title)
+          el.title = options.title;
+        options?.parent?.appendChild(el);
+        return el;
+      }
+
+      const displayConfig = () => {
+        const parent = document.querySelector("#cacheConfig");
+        clear(parent);
+        if (!cache)
+          return;
+        create("h2", {text: "Cache config", parent: parent, title: "The effective cache configuration"});
+        const cfgGrid = create("div", {classes: ["config-grid", "menu-grid"], parent: parent})
+        const cfg = cache.computedConfig();
+        const frag= document.createDocumentFragment();
+        Object.entries(cfg).forEach(([key, value]) => {
+          create("div", {text: key, parent: frag});
+          create("div", {text: JSON.stringify(value), parent: frag});
+        });
+        cfgGrid.appendChild(frag);
+      }
+
+      const displayCacheContent = async () => {
+        clearTimeout(updateTimer);
+        displayConfig();
+        const parent = document.querySelector("#cacheViz");
+        clear(parent);
+        if (!cache)
+          return;
+        let maxValue = 0;
+        let maxA = 0;
+        let cnt=0;
+        const frag = document.createDocumentFragment();
+        create("div", {text: "Key", parent: frag, classes: ["grid-header"]});
+        create("div", {text: "Value", parent: frag, classes: ["grid-header"]});
+        create("div", {text: "Execute get", parent: frag, classes: ["grid-header"], 
+            title: "A GET operation on the cache changes the order of entries, since the element retrieved moves to the end of the cache (will be evicted last)"});
+        create("div", {text: "Delete", parent: frag, classes: ["grid-header"]});
+        outer: for await (const entryBatch of cache.entries({orderByAccessTime: "asc"})) {
+          for (const [key, value] of entryBatch) {
+            if (key.startsWith("entry")) {
+              const id = parseInt(key.substring("entry".length));
+              if (id >= maxValue)
+                maxValue = id + 1;
+            }
+            if (value.a >= maxA)
+              maxA = value.a + 1;
+            const keyEl = create("div", {text: key, parent: frag});
+            const valueEl = create("div", {text: JSON.stringify(value), parent: frag});
+            const getEl = create("button", {text: "get", parent: frag, 
+                title: "Retrieve the element from the cache, and as a side-effect move it to the end (it will be evicted last, then)"});
+            getEl.addEventListener("click", async () => {
+              await cache.get(key);
+              displayCacheContent();
+            });
+            const delEl = create("button", {text: "delete", parent: frag, title: "Delete the element from the cache"});
+            delEl.addEventListener("click", async () => {
+              await cache.delete(key);
+              displayCacheContent();
+            });
+
+            if (cnt++ >= 20)
+              break outer;
+          }
+        }
+        if (cnt >= 21)
+          create("div", {text: "...", title: "More items exist.", parent: frag});
+
+
+
+        create("h2", {text: "Cache content", parent: parent});
+        const addRow = create("div", {classes: ["cache-add-row"], parent: parent});
+        create("div", {text: "Add entry", parent: addRow});
+        const addForm = create("div", {classes: ["cache-add-form"], parent: addRow});
+        create("div", {text: "a:", parent: addForm});
+        const aInput = create("input", {text: maxA, type: "number", title: "Set the value of \"a\" for the new entry", parent: addForm});
+        create("div", {text: "description:", parent: addForm});
+
+
+        const descriptionInput = create("input", {text: "My new entry", type: "text", title: "Enter a description for the new entry", parent: addForm});
+        const submit = create("button", {text: "Submit", parent: addRow});
+        submit.addEventListener("click", async () => {
+          const a = parseInt(aInput.value) || 0;
+          const descr = descriptionInput.value;
+          await cache.set("entry" + maxValue, {a: a, description: descr});
+          displayCacheContent();
+        });
+
+        const startSize = await cache.size();
+        const sizeRow = create("div", {classes: ["cache-size-row"], parent: parent});
+        create("div", {text: "Cache size:", parent: sizeRow});
+        create("div", {text: startSize, parent: sizeRow});
+        const clearBtn = create("button", {text: "Clear", title: "Delete all entries", parent: sizeRow});
+        clearBtn.addEventListener("click", () => {
+          cache?.clear();
+          displayCacheContent();
+        });
+
+        const grid = create("div", {classes: ["cache-grid"], parent: parent});
+        grid.appendChild(frag);
+
+        
+        const checkForUpdate = () => {
+          updateTimer = setTimeout(async () => {
+            const newSize = await cache.size();
+            if (newSize !== startSize)
+              await displayCacheContent();
+            else
+              checkForUpdate();
+          }, 3_000);
+        };
+        checkForUpdate();
+
+      }
+
+
+      document.querySelector("button#createBtn").addEventListener("click", async () => {
+        const db = document.querySelector("input#db").value?.trim();
+        if (!db)
+          throw new Error("No database selected");  // TODO display to the user
+        const clearCurrent = document.querySelector("input#createClear").checked;
+        if (clearCurrent)
+          await cache?.clear();
+        await cache?.close();
+        const maxItems = parseInt(document.querySelector("input#maxItems").value);
+        const maxMemory = parseInt(document.querySelector("input#maxMemory").value);
+        const persistenceInterval = parseInt(document.querySelector("input#persistenceInterval").value);
+        const evictionInterval = parseInt(document.querySelector("input#evictionInterval").value);
+        
+        cache = createCacheIdb({databaseName: db, maxItems: maxItems, persistencePeriod: persistenceInterval, evictionPeriod: evictionInterval, 
+                  memoryConfig: {maxItemsInMemory: maxMemory}});
+        window.cache = cache; // for debugging via the developer console
+        await displayCacheContent();
+      });
+      
+      document.querySelector("button#createBtn").dispatchEvent(new Event("click")); // dispatch a synthetic event to create a db and reload potential content right at the start
+
+    </script>
+</body>

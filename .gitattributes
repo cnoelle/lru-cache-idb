@@ -1,0 +1,2 @@
+# Set the default behavior, in case people don't have core.autocrlf set => git converts line endings to LF on commit.
+* text=auto
