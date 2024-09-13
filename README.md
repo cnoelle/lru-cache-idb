@@ -14,6 +14,8 @@ Design:
 * *Dependency-free*: no third-party Javascript libraries used.
 * *Modern Javascript*: implemented in Typescript as an ESM module.
 
+Demo: https://cnoelle.github.io/lru-cache-idb/
+
 ## Getting started
 
 Install: `npm install lru-cache-idb`
