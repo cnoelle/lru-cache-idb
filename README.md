@@ -1,6 +1,6 @@
 # lru-cache-idb
 
-A least-recently-used (LRU) cache for web applications based on IndexedDB.
+A least-recently-used (LRU) cache for web applications, based on IndexedDB.
 
 ## Introduction
 
