@@ -19,6 +19,10 @@
       }
     }
   },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts"
+  ],
   "keywords": ["lru", "lrucache", "lru-cache", "cache", "indexeddb"],
   "author": "cnoelle",
   "license": "MIT",
