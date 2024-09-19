@@ -18,7 +18,6 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
     readonly #indexedDB: IDBFactory;
     readonly #IDBKeyRange: any;
     readonly #database: string;
-    readonly #dbVersion: number = 1;
     readonly #itemsStorage: string;
     readonly #accessTimesStorage: string;
     readonly #config: LruIdbConfig;
@@ -26,6 +25,7 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
     readonly #accessTimes: Table<{t: MillisecondsSinceEpoch}>;
     readonly #persistenceOrchestrator: PersistenceOrchestrator|undefined;
     readonly #dbLoader: (options?: CacheRequestOptions) => Promise<IDBDatabase>;
+    #dbInitialized: boolean = false;
 
     readonly #eviction: PeriodicTask|undefined;
     // TODO interruptible?
@@ -342,15 +342,50 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
         keysSorted.forEach(key => this.#memory!.delete(key));
     }
 
-    readonly #openDb = (options?: CacheRequestOptions): Promise<IDBDatabase> => {
+    // must only be called from onupgradeneeded callback
+    #createObjectStores(db: IDBDatabase) {
+        const objectStores = db.objectStoreNames;
+        const hasItems = objectStores.contains(this.#itemsStorage);
+        const hasAccessTimes = objectStores.contains(this.#accessTimesStorage);
+        if (!hasItems)
+            db.createObjectStore(this.#itemsStorage);
+        if (!hasAccessTimes) {
+            const timesStore = db.createObjectStore(this.#accessTimesStorage);
+            timesStore.createIndex("time", "t", {unique: false});
+        }
+        this.#dbInitialized = true;
+    }
+
+    #initializeDb = async () => {
+        let nextDbVersion: number|undefined = undefined;
+        while (!this.#dbInitialized) {
+            const initPromise: Promise<[number, boolean]> = new Promise<[number, boolean]>((resolve, reject) => {
+                const request: IDBOpenDBRequest = this.#indexedDB.open(this.#database, nextDbVersion);  // open without explicit version initially, to get the latest
+                request.onupgradeneeded = (event) => this.#createObjectStores((event.target as any).result);
+                request.onerror = reject;
+                request.onsuccess = event => {
+                    const db = (event.target as any).result as IDBDatabase;
+                    if (!this.#dbInitialized) {
+                        const objectStores = db.objectStoreNames;
+                        const hasItems = objectStores.contains(this.#itemsStorage);
+                        const hasAccessTimes = objectStores.contains(this.#accessTimesStorage);
+                        if (hasItems && hasAccessTimes)
+                            this.#dbInitialized = true;
+                    }
+                    resolve([db.version, this.#dbInitialized]);
+                };
+            });
+            const [dbVersion, initialized] = await initPromise;
+            nextDbVersion = dbVersion + 1;
+        }
+    }
+
+
+    readonly #openDb = async (options?: CacheRequestOptions): Promise<IDBDatabase> => {
+        if (!this.#dbInitialized)
+            await this.#initializeDb();
         const dbPromise: Promise<IDBDatabase> = new Promise((resolve, reject) => {
-            const request: IDBOpenDBRequest = this.#indexedDB.open(this.#database, this.#dbVersion);
-            request.onupgradeneeded = (event) => {
-                const db: IDBDatabase = (event.target as any).result;
-                const objectStore = db.createObjectStore(this.#itemsStorage /*, { keyPath: "key" }*/);
-                const timesStore = db.createObjectStore(this.#accessTimesStorage);
-                timesStore.createIndex("time", "t", {unique: false});
-            };
+            const request: IDBOpenDBRequest = this.#indexedDB.open(this.#database /*, this.#dbVersion*/);  // open without explicit version, to get the latest
             request.onerror = reject;
             options?.signal?.addEventListener("abort", reject, {once: true});
             request.onsuccess = event => {

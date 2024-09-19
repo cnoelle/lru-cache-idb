@@ -361,7 +361,7 @@ test("peek does not affect access times for default cache and immediate persiste
     await defaultCache.close();
 });
 
-test.only("Order of items works with in-memory updates in memory cache", async t => {
+test("Order of items works with in-memory updates in memory cache", async t => {
     const persistencePeriod = 50;
     const defaultCache = createFakeIdb({persistencePeriod: persistencePeriod, memoryConfig: { maxItemsInMemory: 10 }});
     const obj1 = {a: "test1", b: 1};
