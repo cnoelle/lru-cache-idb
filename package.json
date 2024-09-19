@@ -1,6 +1,6 @@
 {
   "name": "lru-cache-idb",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A least-recently-used (LRU) cache for web applications based on IndexedDB.",
   "type": "module",
   "types": "./dist/cache.d.ts",

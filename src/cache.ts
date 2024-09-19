@@ -14,6 +14,13 @@ export interface LruIdbConfig {
     databaseName?: string;
     
     /**
+     * Default: "".
+     * The prefix will be prepended to "Items" and "AccessTimes" to generate the names
+     * for the two IndexedDB object stores used.
+     */
+    tablePrefix?: string;
+
+    /**
      * Maximum number of items to be kept in the store. Note that this is not enforced strictly,
      * a clean up operation takes place regularly to purge the cache from old entries.
      * 

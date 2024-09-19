@@ -91,13 +91,14 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
         this.#indexedDB = this.#config.indexedDB?.databaseFactory!;
         this.#IDBKeyRange = this.#config.indexedDB?.keyRange!;
         this.#database = this.#config.databaseName!;
-        this.#itemsStorage = "Items";
-        this.#accessTimesStorage = "AccessTimes";
+        const prefix = this.#config.tablePrefix || "";
+        this.#itemsStorage = prefix + "Items";
+        this.#accessTimesStorage = prefix + "AccessTimes";
         const dbLoader = (options?: CacheRequestOptions) => this.#openDb(options);
         this.#dbLoader = dbLoader;
-        this.#items = new Table<T>({IDBKeyRange: this.#IDBKeyRange, id: "CachedItems", database: this.#database, objectStore: this.#itemsStorage, persistencePeriod: this.#config.persistencePeriod, 
+        this.#items = new Table<T>({IDBKeyRange: this.#IDBKeyRange, id: this.#itemsStorage, database: this.#database, objectStore: this.#itemsStorage, persistencePeriod: this.#config.persistencePeriod, 
             dbLoader: dbLoader});
-        this.#accessTimes = new Table<{t: MillisecondsSinceEpoch}>({IDBKeyRange: this.#IDBKeyRange, id: "CachedItemAccessTime", database: this.#database, objectStore: this.#accessTimesStorage, 
+        this.#accessTimes = new Table<{t: MillisecondsSinceEpoch}>({IDBKeyRange: this.#IDBKeyRange, id: this.#accessTimesStorage, database: this.#database, objectStore: this.#accessTimesStorage, 
             indexes: new Map([["time", {key: "t", unique: false}]]), persistencePeriod: this.#config.persistencePeriod,
             dbLoader: dbLoader});
         const cleanUpNeeded: boolean = this.#config.maxItems! > 0 && this.#config.evictionPeriod! > 0
