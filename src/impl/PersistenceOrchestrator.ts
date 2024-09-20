@@ -43,6 +43,7 @@ export class PersistenceOrchestrator {
             signal.addEventListener("abort", abort!, {once: true});
             const failed = (evt: Event|Error) => {
                 reject(evt);
+                db.close();
                 signal.removeEventListener("abort", abort!);    
             }
             transaction.onerror = failed;
@@ -60,6 +61,7 @@ export class PersistenceOrchestrator {
             }
             request.onsuccess = evt => {
                 resolve((evt.target as any).result);
+                db.close();
                 signal.removeEventListener("abort", abort!);    
             };
             if (transaction.commit)
@@ -87,6 +89,7 @@ export class PersistenceOrchestrator {
             signal?.addEventListener("abort", abort!, {once: true});
             const failed = (evt: Event|Error) => {
                 reject(evt);
+                db.close();
                 signal?.removeEventListener("abort", abort!);    
             }
             transaction.onerror = failed;
@@ -105,6 +108,7 @@ export class PersistenceOrchestrator {
             }
             request.onsuccess = evt => {
                 resolve((evt.target as any).result);
+                db.close();
                 signal?.removeEventListener("abort", abort!);    
             };
             if (transaction.commit)
@@ -126,6 +130,7 @@ export class PersistenceOrchestrator {
             signal?.addEventListener("abort", abort!, {once: true});
             const failed = (evt: Event|Error) => {
                 reject(evt);
+                db.close();
                 signal?.removeEventListener("abort", abort!);    
             }
             transaction.onerror = failed;
@@ -144,6 +149,7 @@ export class PersistenceOrchestrator {
             }
             request.onsuccess = evt => {
                 resolve((evt.target as any).result);
+                db.close();
                 signal?.removeEventListener("abort", abort!);    
             };
             if (transaction.commit)
@@ -172,6 +178,7 @@ export class PersistenceOrchestrator {
             signal?.addEventListener("abort", abort!, {once: true});
             const failed = (evt: Event|Error) => {
                 reject(evt);
+                db.close();
                 signal?.removeEventListener("abort", abort!);    
             }
             transaction.onerror = failed;
@@ -183,6 +190,7 @@ export class PersistenceOrchestrator {
                 request.onsuccess = () => results[idx] = request.result;
                 if (results.filter(r => r !== undefined).length === tables.length) {
                     resolve(results as Array<number>);
+                    db.close();
                     signal?.removeEventListener("abort", abort);
                 }
             });
@@ -206,6 +214,7 @@ export class PersistenceOrchestrator {
             signal?.addEventListener("abort", abort!, {once: true});
             const failed = (evt: Event|Error) => {
                 reject(evt);
+                db.close();
                 signal?.removeEventListener("abort", abort!);    
             }
             transaction.onerror = failed;
@@ -224,6 +233,7 @@ export class PersistenceOrchestrator {
             }
             request.onsuccess = evt => {
                 resolve((evt.target as any).result);
+                db.close();
                 signal?.removeEventListener("abort", abort!);    
             };
             if (transaction.commit)

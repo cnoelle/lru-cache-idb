@@ -1,5 +1,4 @@
-import { CacheRequestOptions, CacheWriteOptions, IterationOptions, LruCacheIndexedDB, Milliseconds } from "../cache.js";
-import { PeriodicTask } from "./PeriodicTask.js";
+import { CacheRequestOptions, CacheWriteOptions, IterationOptions, Milliseconds } from "../cache.js";
 import { PersistenceOrchestrator } from "./PersistenceOrchestrator.js";
 import { TableStream } from "./TableStream.js";
 
@@ -182,7 +181,10 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
         const db = await this.#dbLoader(options);
         const objectPromise = new Promise<Map<string, T|undefined>>((resolve, reject) => {
             const transaction = db.transaction([store], "readonly");
-            transaction.onerror = reject;
+            transaction.onerror = evt => {
+                reject(evt);
+                db.close();
+            };
             const abort = () => transaction.abort();
             const objectStore = transaction.objectStore(store);
             const results = new Map();
@@ -197,6 +199,7 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
                     cnt++;
                     if (cnt === keys.length) {
                         resolve(results);
+                        db.close();
                         options?.signal?.removeEventListener("abort", abort);
                     }
                 }; 
@@ -221,7 +224,10 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
         const db = await this.#dbLoader(options);
         const objectPromise = new Promise<T|undefined>((resolve, reject) => {
             const transaction = db.transaction([store], "readonly");
-            transaction.onerror = reject;
+            transaction.onerror = evt => {
+                reject(evt);
+                db.close();
+            };
             const abort = () => transaction.abort();
             const objectStore = transaction.objectStore(store);
             const dataRequest = objectStore.get(key)
@@ -229,6 +235,7 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
             options?.signal?.addEventListener("abort", abort, {once: true});
             dataRequest.onsuccess = evt => {
                 resolve((evt.target as any).result);
+                db.close();
                 options?.signal?.removeEventListener("abort", abort);
             };
             if (transaction.commit)
@@ -242,7 +249,10 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
         const db = await this.#dbLoader(options);
         const donePromise = new Promise((resolve, reject) => {
             const transaction = db.transaction([store], "readwrite");
-            transaction.onerror = reject;
+            transaction.onerror = evt => {
+                reject(evt);
+                db.close();
+            };
             const abort = () => transaction.abort();
             options?.signal?.addEventListener("abort", abort, {once: true});
             const objectStore = transaction.objectStore(store);
@@ -252,6 +262,7 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
             }
             request!.onsuccess = evt => {
                 resolve((evt.target as any).result);
+                db.close();
                 options?.signal?.removeEventListener("abort", abort);
             }
             if (transaction.commit)
@@ -267,13 +278,17 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
             const transaction = db.transaction([store], "readonly");
             const abort = () => transaction.abort();
             options?.signal?.addEventListener("abort", abort, {once: true});
-            transaction.onerror = reject;
+            transaction.onerror = evt => {
+                reject(evt);
+                db.close();
+            };
             const objectStore = transaction.objectStore(store);
             const countRequest = objectStore.count();
             countRequest.onerror = reject;
             countRequest.onsuccess = () => {
                 const numItems = countRequest.result;
                 resolve(numItems + (this.#itemsForPersistence?.size || 0));
+                db.close();
                 options?.signal?.removeEventListener("abort", abort);
             }
             if (transaction.commit)
@@ -307,7 +322,10 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
         const db = await this.#dbLoader(options);
         const objectPromise = new Promise<Array<string>>((resolve, reject) => {
             const transaction = db.transaction([store], "readonly");
-            transaction.onerror = reject;
+            transaction.onerror = evt => {
+                reject(evt);
+                db.close();
+            };
             const abort = () => transaction.abort();
             const objectStore = transaction.objectStore(store);
             const dataRequest = objectStore.getAllKeys();
@@ -319,6 +337,7 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
                     for (const key of this.#itemsForPersistence!.keys())
                         allKeys.push(key);
                 resolve(allKeys);
+                db.close();
                 options?.signal?.removeEventListener("abort", abort);
             };
             if (transaction.commit)
@@ -352,7 +371,10 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
         const db = await this.#dbLoader(options);
         const deletePromise = new Promise<number>((resolve, reject) => {
             const transaction = db.transaction([store], "readwrite");
-            transaction.onerror = reject;
+            transaction.onerror = evt => {
+                reject(evt);
+                db.close();
+            };
             const abort = () => transaction.abort();
             options?.signal?.addEventListener("abort", abort, {once: true});
             const objectStore = transaction.objectStore(store);
@@ -362,6 +384,7 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
             }
             request!.onsuccess = () => {
                 resolve(keys.length + count);
+                db.close();
                 options?.signal?.removeEventListener("abort", reject);
             };
             if (transaction.commit)
@@ -376,7 +399,10 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
         const db = await this.#dbLoader(options);
         const deletePromise = new Promise<unknown>((resolve, reject) => {
         const transaction = db.transaction([store], "readwrite");
-        transaction.onerror = reject;
+        transaction.onerror = evt => {
+            reject(evt);
+            db.close();
+        };
         const abort = () => transaction.abort();
         options?.signal?.addEventListener("abort", abort, {once: true});
         const objectStore = transaction.objectStore(store);
@@ -385,6 +411,7 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
         clearRequest.onsuccess = () => {
                 this.#itemsForPersistence?.clear();
                 resolve(undefined);
+                db.close();
                 options?.signal?.removeEventListener("abort", reject);
             };
             if (transaction.commit)

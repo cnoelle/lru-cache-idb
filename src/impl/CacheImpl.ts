@@ -28,7 +28,6 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
     #dbInitialized: boolean = false;
 
     readonly #eviction: PeriodicTask|undefined;
-    // TODO interruptible?
     readonly #evictionTask = async () => {
         let deadline = await idle();
         const count = await this.#items.size();
@@ -363,6 +362,10 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
                 const request: IDBOpenDBRequest = this.#indexedDB.open(this.#database, nextDbVersion);  // open without explicit version initially, to get the latest
                 request.onupgradeneeded = (event) => this.#createObjectStores((event.target as any).result);
                 request.onerror = reject;
+                request.onblocked = evt => {
+                    // TODO close at some point?
+                    //console.log("DB open request is blocked for db", this.#database, ", table", this.#itemsStorage, /*evt*/);
+                }
                 request.onsuccess = event => {
                     const db = (event.target as any).result as IDBDatabase;
                     if (!this.#dbInitialized) {
@@ -373,6 +376,7 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
                             this.#dbInitialized = true;
                     }
                     resolve([db.version, this.#dbInitialized]);
+                    db.close();
                 };
             });
             const [dbVersion, initialized] = await initPromise;
@@ -389,7 +393,13 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
             request.onerror = reject;
             options?.signal?.addEventListener("abort", reject, {once: true});
             request.onsuccess = event => {
-                resolve((event.target as any).result as IDBDatabase);
+                const db = (event.target as any).result as IDBDatabase;
+                // someone else requests a version update; wait a few ms to allow for all transactions within this context to start, then close
+                // we never store db connections for reuse anyway
+                // https://developer.mozilla.org/en-US/docs/Web/API/IDBDatabase/versionchange_event
+                // https://potentpages.com/web-design/javascript/indexeddb-api-with-javascript                
+                db.onversionchange = () => setTimeout(() => db.close(), 25);
+                resolve(db);
                 options?.signal?.removeEventListener("abort", reject);
             };
         });
