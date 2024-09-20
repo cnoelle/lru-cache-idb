@@ -423,7 +423,6 @@ test.skip("Order of items works with in-memory updates and immediately persisted
     await defaultCache.close();
 });
 
-
 test("Multiple caches in the same db work in parallel", async t => {
     const dbName = "Test_conc1";
     const key = "a";
@@ -475,9 +474,49 @@ test("Many caches in the same db work sequentially with immediate persistence", 
     await Promise.all(caches.map(cache => cache.close()));
 });
 
-test("Many caches in the same db work in parallel with immediate persistence", async t => {
+test("Many caches in the same db work sequentially with immediate persistence with pre-allocated tables", async t => {
     const numTables = 10;
     const dbName = "Test_conc5";
+    const key = "a";
+    const tablePrefixes = new Array(numTables).fill(undefined).map((_, idx) => idx + "");
+    const caches = new Array(numTables).fill(undefined).map((_, idx) => createFakeIdb({
+        dbName: dbName, 
+        tablePrefix: tablePrefixes[idx], 
+        tablePrefixesUsed: tablePrefixes,
+        persistencePeriod: 0
+    }));
+    let idx = 0;
+    for (const cache of caches) {
+        await cache.set(key, "test" + idx++);    
+    }
+    const results = await Promise.all(caches.map(cache => cache.get(key)));
+    results.forEach((result, idx) => t.is(result, "test" + idx));
+    await Promise.all(caches.map(cache => cache.close()));
+});
+
+test("Many caches in the same db work sequentially with immediate persistence with partly pre-allocated tables", async t => {
+    const numTables = 10;
+    const dbName = "Test_conc6";
+    const key = "a";
+    const tablePrefixes = new Array(numTables).fill(undefined).map((_, idx) => idx + "");
+    const caches = new Array(numTables).fill(undefined).map((_, idx) => createFakeIdb({
+        dbName: dbName, 
+        tablePrefix: tablePrefixes[idx], 
+        tablePrefixesUsed: tablePrefixes.slice(0, Math.round(numTables/2)),
+        persistencePeriod: 0
+    }));
+    let idx = 0;
+    for (const cache of caches) {
+        await cache.set(key, "test" + idx++);    
+    }
+    const results = await Promise.all(caches.map(cache => cache.get(key)));
+    results.forEach((result, idx) => t.is(result, "test" + idx));
+    await Promise.all(caches.map(cache => cache.close()));
+});
+
+test("Many caches in the same db work in parallel with immediate persistence", async t => {
+    const numTables = 10;
+    const dbName = "Test_conc7";
     const key = "a";
     const caches = new Array(numTables).fill(undefined).map((_, idx) => createFakeIdb({dbName: dbName, tablePrefix: idx + "", persistencePeriod: 0}));
     await Promise.all(caches.map((cache, idx) => cache.set(key, "test" + idx)));
@@ -511,3 +550,4 @@ test("Many caches in different dbs work sequentially with immediate persistence"
     results.forEach((result, idx) => t.is(result, "test" + idx));
     await Promise.all(caches.map(cache => cache.close()));
 });
+

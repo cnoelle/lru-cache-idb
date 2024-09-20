@@ -2,7 +2,7 @@ import { CacheRequestOptions, CacheWriteOptions, IterationOptions, LruCacheIndex
 import { PeriodicTask } from "./PeriodicTask.js";
 import { PersistenceOrchestrator } from "./PersistenceOrchestrator.js";
 import { Table } from "./Table.js";
-import { idle, TransformIterator, validateConfig } from "./Utils.js";
+import { idle, TransformIterator, validateConfig, ValidatedLruIdbConfig } from "./Utils.js";
 
 export type MillisecondsSinceEpoch = number;
 
@@ -20,7 +20,7 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
     readonly #database: string;
     readonly #itemsStorage: string;
     readonly #accessTimesStorage: string;
-    readonly #config: LruIdbConfig;
+    readonly #config: ValidatedLruIdbConfig;
     readonly #items: Table<T>;
     readonly #accessTimes: Table<{t: MillisecondsSinceEpoch}>;
     readonly #persistenceOrchestrator: PersistenceOrchestrator|undefined;
@@ -90,9 +90,8 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
         this.#indexedDB = this.#config.indexedDB?.databaseFactory!;
         this.#IDBKeyRange = this.#config.indexedDB?.keyRange!;
         this.#database = this.#config.databaseName!;
-        const prefix = this.#config.tablePrefix || "";
-        this.#itemsStorage = prefix + "Items";
-        this.#accessTimesStorage = prefix + "AccessTimes";
+        this.#itemsStorage = this.#config.itemsStorage;
+        this.#accessTimesStorage = this.#config.accessTimesStorage;
         const dbLoader = (options?: CacheRequestOptions) => this.#openDb(options);
         this.#dbLoader = dbLoader;
         this.#items = new Table<T>({IDBKeyRange: this.#IDBKeyRange, id: this.#itemsStorage, database: this.#database, objectStore: this.#itemsStorage, persistencePeriod: this.#config.persistencePeriod, 
@@ -109,12 +108,14 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
         this.#initTimer = setTimeout(() => this.#cleanUpOrphaned.trigger(), 20_000);
     }
 
-    computedConfig() {
-        const copy: LruIdbConfig = {...this.#config};
+    computedConfig(): LruIdbConfig {
+        const copy: ValidatedLruIdbConfig = {...this.#config};
+        // some defensive copies...
         if (copy.indexedDB)
             copy.indexedDB = {...copy.indexedDB!};
         if (typeof(copy.memoryConfig) === "object")
             copy.memoryConfig = {...copy.memoryConfig};
+        copy.allRequestedObjectStorages = [...copy.allRequestedObjectStorages];
         return copy
     }
 
@@ -344,13 +345,12 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
     // must only be called from onupgradeneeded callback
     #createObjectStores(db: IDBDatabase) {
         const objectStores = db.objectStoreNames;
-        const hasItems = objectStores.contains(this.#itemsStorage);
-        const hasAccessTimes = objectStores.contains(this.#accessTimesStorage);
-        if (!hasItems)
-            db.createObjectStore(this.#itemsStorage);
-        if (!hasAccessTimes) {
-            const timesStore = db.createObjectStore(this.#accessTimesStorage);
-            timesStore.createIndex("time", "t", {unique: false});
+        for (const store of this.#config.allRequestedObjectStorages) {
+            if (!objectStores.contains(store)) {
+                const newStore = db.createObjectStore(store); 
+                if (store.endsWith("AccessTimes"))
+                    newStore.createIndex("time", "t", {unique: false});
+            }
         }
         this.#dbInitialized = true;
     }

@@ -21,6 +21,14 @@ export interface LruIdbConfig {
     tablePrefix?: string;
 
     /**
+     * When using multiple caches with different table names but the same database in a single app, then
+     * it is more efficient to pass all the tables here, so they can be created right at the start. 
+     * This is not strictly required, however, if a table for some cache is missing it will be created
+     * later, resulting in an IndexedDB version update.
+     */
+    tablePrefixesUsed?: Array<string>;
+
+    /**
      * Maximum number of items to be kept in the store. Note that this is not enforced strictly,
      * a clean up operation takes place regularly to purge the cache from old entries.
      * 

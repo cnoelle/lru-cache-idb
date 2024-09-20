@@ -10,8 +10,21 @@ const defaultConfig: LruIdbConfig = {
     memoryConfig: false
 }
 
-export function validateConfig(config?: LruIdbConfig): LruIdbConfig {
-    const cfg: LruIdbConfig = config ? {...defaultConfig, ...config} : {...defaultConfig};
+
+export interface ValidatedLruIdbConfig extends LruIdbConfig {
+    itemsStorage: string;
+    accessTimesStorage: string;
+    allRequestedObjectStorages: Array<string>;  /* generated from tablePrefix and tablePrefixesUsed */
+    databaseName: string;  // not optional
+    indexedDB: {           // not optional
+        databaseFactory: IDBFactory;
+        keyRange: /* Class<IDBKeyRange>*/ any;
+    }
+}
+
+export function validateConfig(config?: LruIdbConfig): ValidatedLruIdbConfig {
+    // @ts-ignore
+    const cfg: ValidatedLruIdbConfig = config ? {...defaultConfig, ...config} : {...defaultConfig};
     if (cfg.indexedDB === undefined)
         cfg.indexedDB = {
             databaseFactory: globalThis.indexedDB,
@@ -45,6 +58,18 @@ export function validateConfig(config?: LruIdbConfig): LruIdbConfig {
                 throw new Error("numMemoryItemsToPurge must be a positive integer, got " + memory.numMemoryItemsToPurge);
         }
     }
+    const prefix = cfg.tablePrefix || "";
+    cfg.itemsStorage = prefix + "Items";
+    cfg.accessTimesStorage = prefix + "AccessTimes";
+    const allRequestedObjectStorages = [cfg.itemsStorage, cfg.accessTimesStorage];
+    if (cfg.tablePrefixesUsed) {
+        for (const otherPrefix of cfg.tablePrefixesUsed) {
+            if (otherPrefix === prefix)
+                continue;
+            allRequestedObjectStorages.push(...[otherPrefix + "Items", otherPrefix + "AccessTimes"]);
+        }
+    }
+    cfg.allRequestedObjectStorages = allRequestedObjectStorages;
     return cfg;
 }
 
