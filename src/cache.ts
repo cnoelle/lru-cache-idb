@@ -240,9 +240,16 @@ export interface LruCacheIndexedDB<T> extends AsyncIterable<Array<string>> {
      */
     clear(options?: CacheRequestOptions): Promise<unknown>;
     /**
-     * Close the cache.
+     * Close the cache. Note that this will trigger the persistence, so it should be good practice to 
+     * close the cache explicitly before 
      */
     close(): Promise<unknown>;
+
+    /**
+     * If the configured persistence interval is positive, this method can be used
+     * to trigger an immediate persistence of the stored data.
+     */
+    persist(): Promise<unknown>;
 
     computedConfig(): LruIdbConfig;
 

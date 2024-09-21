@@ -23,6 +23,10 @@ export class PersistenceOrchestrator {
         this.#persistence.trigger();
     }
 
+    triggerImmediate(): Promise<unknown> {
+        return this.#persistence.triggerImmediate();
+    }
+
     async #runPersistence() {
         const signal = this.#controller.signal;
         if (signal.aborted)

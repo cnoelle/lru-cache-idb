@@ -108,6 +108,10 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
         this.#initTimer = setTimeout(() => this.#cleanUpOrphaned.trigger(), 20_000);
     }
 
+    persist(): Promise<unknown> {
+        return this.#persistenceOrchestrator?.triggerImmediate() || Promise.resolve();
+    }
+
     computedConfig(): LruIdbConfig {
         const copy: ValidatedLruIdbConfig = {...this.#config};
         // some defensive copies...

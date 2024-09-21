@@ -551,3 +551,34 @@ test("Many caches in different dbs work sequentially with immediate persistence"
     await Promise.all(caches.map(cache => cache.close()));
 });
 
+test("Cache persistence works with immediate persistence", async t => {
+    const dbName = "PersistenceTest1";
+    const cache = createFakeIdb({dbName: dbName, persistencePeriod: 0});
+    const obj1 = {a: "test1", b: 1};
+    const obj2 = {a: "test2", b: 2};
+    await cache.set(obj1.a, obj1);
+    await cache.set(obj2.a, obj2);
+    t.is(await cache.size(), 2);
+    await cache.close();
+    const cache2 = createFakeIdb({dbName: dbName, persistencePeriod: 0});
+    t.is(await cache.size(), 2);
+    t.like(await cache2.getAllKeys(), [obj1.a, obj2.a]);
+    await cache2.close();
+});
+
+test("Cache persistence works with explicit close", async t => {
+    const dbName = "PersistenceTest2";
+    const cache = createFakeIdb({dbName: dbName, persistencePeriod: 5_000});
+    const obj1 = {a: "test1", b: 1};
+    const obj2 = {a: "test2", b: 2};
+    await cache.set(obj1.a, obj1);
+    await cache.set(obj2.a, obj2);
+    t.is(await cache.size(), 2);
+    await cache.persist();
+    await cache.close();  // the close call ensures that the persistence is triggered 
+    const cache2 = createFakeIdb({dbName: dbName, persistencePeriod: 5_000});
+    t.is(await cache.size(), 2);
+    t.like(await cache2.getAllKeys(), [obj1.a, obj2.a]);
+    await cache2.close();
+});
+
