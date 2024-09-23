@@ -44,6 +44,13 @@ test("Empty memory cache works", async t => {
     await defaultCache.close();
 });
 
+test("Retrieving a non-existent value works with memory cache", async t => {
+    const defaultCache = createFakeIdb({memoryConfig: { maxItemsInMemory: 5 }});
+    const result = await defaultCache.get("test");
+    t.is(result, undefined);
+    await defaultCache.close();
+});
+
 test("set() works for memory cache", async t => {
     const defaultCache = createFakeIdb({memoryConfig: { maxItemsInMemory: 5 }});
     const obj1 = {a: "test1", b: 1};

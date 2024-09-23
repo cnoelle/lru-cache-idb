@@ -45,6 +45,13 @@ test("Empty default cache works", async t => {
     await defaultCache.close();
 });
 
+test("Retrieving a non-existent value works with the default cache", async t => {
+    const defaultCache = createFakeIdb();
+    const result = await defaultCache.get("test");
+    t.is(result, undefined);
+    await defaultCache.close();
+});
+
 test("set() works for default cache", async t => {
     const defaultCache = createFakeIdb();
     const obj1 = {a: "test1", b: 1};

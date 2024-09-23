@@ -223,7 +223,6 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
         return this.get(key, options).then(r => r !== undefined);
     }
 
-    // TODO what happens if no such item exists?
     async #getInternal(key: string, options?: CacheRequestOptions): Promise<T|undefined> {
         const store = this.#objectStore;
         const db = await this.#dbLoader(options);
