@@ -194,6 +194,7 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
 
     async set(key: string, value: T, options?: CacheRequestOptions&CacheWriteOptions): Promise<unknown> {
         const now = Date.now();
+        const valueForMemory = this.#copyOnInsert && this.#memory ? this.#deepCopy!(value) : value;
         // case 1: delayed persistence
         if (this.#persistenceOrchestrator && !options?.persistImmediately) { 
             const options2 = {persistence: this.#persistenceOrchestrator};
@@ -204,7 +205,7 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
             await PersistenceOrchestrator.persistImmediately(entries, await this.#dbLoader(), options);
         }
         if (this.#memory)
-            this.#memory?.set(key, {key: key, value: this.#copyOnInsert ? this.#deepCopy!(value) : value, lastAccessed: now});
+            this.#memory?.set(key, {key: key, value: valueForMemory, lastAccessed: now});
         this.#cleanUpAfterSet();
         return undefined;
     }
@@ -215,6 +216,8 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
         const now = Date.now();
         const timeEntry = {t: now};
         const accessTimes = new Map(Array.from(entries.keys()).map(key => [key, timeEntry]));
+        const entriesForMemory = this.#memory && this.#copyOnInsert ? 
+                new Map(Array.from(entries.entries()).map(([key, value]) => [key, this.#deepCopy!(value)])) : entries;
         // case 1: delayed persistence
         if (this.#persistenceOrchestrator && !options?.persistImmediately) { 
             const options2 = {persistence: this.#persistenceOrchestrator};
@@ -225,7 +228,7 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
             await PersistenceOrchestrator.persistImmediately(fullEntries, await this.#dbLoader(), options);
         }
         if (this.#memory)
-            entries.forEach((value, key) => this.#memory?.set(key, {key: key, value: this.#copyOnInsert ? this.#deepCopy!(value) : value, lastAccessed: now}));
+            entriesForMemory.forEach((value, key) => this.#memory?.set(key, {key: key, value: value, lastAccessed: now}));
         this.#cleanUpAfterSet();
         return undefined;
     }
