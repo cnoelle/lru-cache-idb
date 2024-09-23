@@ -154,23 +154,28 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
         return this.get(key, options);
     }
 
-    async get(key: string, options?: CacheRequestOptions): Promise<T|undefined> {
-        if (this.#itemsForPersistence?.has(key))
-            return Promise.resolve(this.#itemsForPersistence.get(key)!);
+    async get(key: string, options?: CacheRequestOptions&{deepCopy?: Function;}): Promise<T|undefined> {
+        if (this.#itemsForPersistence?.has(key)) {
+            const item = this.#itemsForPersistence.get(key)!;
+            return Promise.resolve(options?.deepCopy ? options.deepCopy(item) : item);
+        }
         const item = await this.#getInternal(key, options);  
         return item;
     }
 
-    async getAll(keys: Array<string>, options?: CacheRequestOptions&{includeAbsent?: boolean}): Promise<Map<string, T|undefined>> {
+    async getAll(keys: Array<string>, options?: CacheRequestOptions&{includeAbsent?: boolean; deepCopy?: Function;}): Promise<Map<string, T|undefined>> {
         if (keys.length === 0)
             return Promise.resolve(new Map());
         let result: Map<string, T|undefined>|undefined;
         if (this.#itemsForPersistence) {
-            const entries = keys
+            let entries = keys
                 .filter(key => this.#itemsForPersistence?.has(key))
                 .map(key => [key, this.#itemsForPersistence?.get(key)!] as [string, T])
-            if (entries.length > 0)
+            if (entries.length > 0) {
+                if (options?.deepCopy)
+                    entries = entries.map(([key, value]) => [key, options.deepCopy!(value)]);
                 result = new Map(entries);
+            }
         }
         if (result) {
             keys = keys.filter(key => !result.has(key));
@@ -297,9 +302,9 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
         return donePromise;
     }
 
-    set(key: string, value: T, options?: CacheRequestOptions&CacheWriteOptions&{persistence?: PersistenceOrchestrator}): Promise<unknown> {
+    set(key: string, value: T, options?: CacheRequestOptions&CacheWriteOptions&{persistence?: PersistenceOrchestrator; deepCopy?: Function;}): Promise<unknown> {
         if (this.#itemsForPersistence && !options?.persistImmediately) {
-            this.#itemsForPersistence.set(key, value);
+            this.#itemsForPersistence.set(key, options?.deepCopy ? options.deepCopy(value) : value);
             options?.persistence?.trigger();
             return Promise.resolve();
         } else {
@@ -307,9 +312,9 @@ export class Table<T> /*implements LruCacheIndexedDB<T>*/ {
         }
     }
 
-    setAll(entries: Map<string, T>, options?: CacheRequestOptions&CacheWriteOptions&{persistence?: PersistenceOrchestrator}): Promise<unknown> {
+    setAll(entries: Map<string, T>, options?: CacheRequestOptions&CacheWriteOptions&{persistence?: PersistenceOrchestrator; deepCopy?: Function;}): Promise<unknown> {
         if (this.#itemsForPersistence && !options?.persistImmediately) {
-            entries.forEach((value, key) => this.#itemsForPersistence!.set(key, value));
+            entries.forEach((value, key) => this.#itemsForPersistence!.set(key, options?.deepCopy ? options.deepCopy(value) : value));
             options?.persistence?.trigger();
             return Promise.resolve();
         } else {

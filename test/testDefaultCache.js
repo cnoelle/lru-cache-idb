@@ -582,3 +582,76 @@ test("Cache persistence works with explicit close", async t => {
     await cache2.close();
 });
 
+test("copyOnInsert works", async t => {
+    const cache = createFakeIdb({persistencePeriod: 5_000, copyOnInsert: true});
+    const obj1 = {a: "test1", b: 1};
+    const copy = {...obj1};
+    await cache.set(obj1.a, obj1);
+    obj1.b = 2;
+    t.deepEqual(await cache.get(obj1.a), copy);
+    await cache.close();
+});
+
+test("copyOnInsert works with setAll", async t => {
+    const cache = createFakeIdb({persistencePeriod: 5_000, copyOnInsert: true});
+    const obj1 = {a: "test1", b: 1};
+    const obj2 = {a: "test2", b: 2};
+    const copy1 = {...obj1};
+    const copy2 = {...obj2};
+    await cache.setAll(new Map([[obj1.a, obj1], [obj2.a, obj2]]));
+    obj1.b = -1;
+    obj2.b = -2;
+    t.deepEqual(await cache.get(obj1.a), copy1);
+    t.deepEqual(await cache.get(obj2.a), copy2);
+    await cache.close();
+});
+
+// copyOnInsert actually should be irrelevant in this case
+test("copyOnInsert works with immediate persistence", async t => {
+    const cache = createFakeIdb({persistencePeriod: 0, copyOnInsert: true});
+    const obj1 = {a: "test1", b: 1};
+    const copy = {...obj1};
+    await cache.set(obj1.a, obj1);
+    obj1.b = 2;
+    t.deepEqual(await cache.get(obj1.a), copy);
+    await cache.close();
+});
+
+
+test("copyOnReturn works", async t => {
+    const cache = createFakeIdb({persistencePeriod: 5_000, copyOnReturn: true});
+    const obj1 = {a: "test1", b: 1};
+    const copy = {...obj1};
+    await cache.set(obj1.a, obj1);
+    (await cache.get(obj1.a)).b = 2;
+    t.deepEqual(await cache.get(obj1.a), copy);
+    await cache.close();
+});
+
+test("copyOnReturn works with getAll", async t => {
+    const cache = createFakeIdb({persistencePeriod: 5_000, copyOnReturn: true});
+    const obj1 = {a: "test1", b: 1};
+    const obj2 = {a: "test2", b: 2};
+    const copy1 = {...obj1};
+    const copy2 = {...obj2};
+    await cache.set(obj1.a, obj1);
+    await cache.set(obj2.a, obj2);
+    (await cache.get(obj1.a)).b = -1;
+    (await cache.get(obj2.a)).b = -2;
+    t.deepEqual(await cache.get(obj1.a), copy1);
+    t.deepEqual(await cache.get(obj2.a), copy2);
+    await cache.close();
+});
+
+// copyOnReturn actually should be irrelevant in this case
+test("copyOnReturn works with immediate persistence", async t => {
+    const cache = createFakeIdb({persistencePeriod: 0, copyOnReturn: true});
+    const obj1 = {a: "test1", b: 1};
+    const copy = {...obj1};
+    await cache.set(obj1.a, obj1);
+    (await cache.get(obj1.a)).b = 2;
+    t.deepEqual(await cache.get(obj1.a), copy);
+    await cache.close();
+});
+
+

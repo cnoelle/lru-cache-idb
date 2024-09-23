@@ -402,3 +402,75 @@ test("Order of items works with in-memory updates in memory cache", async t => {
     }
     await defaultCache.close();
 });
+
+
+test("copyOnInsert works with in-memory cache", async t => {
+    const cache = createFakeIdb({persistencePeriod: 5_000, copyOnInsert: true, memoryConfig: { maxItemsInMemory: 10 }});
+    const obj1 = {a: "test1", b: 1};
+    const copy = {...obj1};
+    await cache.set(obj1.a, obj1);
+    obj1.b = 2;
+    t.deepEqual(await cache.get(obj1.a), copy);
+    await cache.close();
+});
+
+test("copyOnInsert works with in-memory cache with setAll", async t => {
+    const cache = createFakeIdb({persistencePeriod: 5_000, copyOnInsert: true, memoryConfig: { maxItemsInMemory: 10 }});
+    const obj1 = {a: "test1", b: 1};
+    const obj2 = {a: "test2", b: 2};
+    const copy1 = {...obj1};
+    const copy2 = {...obj2};
+    await cache.setAll(new Map([[obj1.a, obj1], [obj2.a, obj2]]));
+    obj1.b = -1;
+    obj2.b = -2;
+    t.deepEqual(await cache.get(obj1.a), copy1);
+    t.deepEqual(await cache.get(obj2.a), copy2);
+    await cache.close();
+});
+
+test("copyOnInsert works with in-memory cache with immediate persistence", async t => {
+    const cache = createFakeIdb({persistencePeriod: 0, copyOnInsert: true, memoryConfig: { maxItemsInMemory: 10 }});
+    const obj1 = {a: "test1", b: 1};
+    const copy = {...obj1};
+    await cache.set(obj1.a, obj1);
+    obj1.b = 2;
+    t.deepEqual(await cache.get(obj1.a), copy);
+    await cache.close();
+});
+
+
+test("copyOnReturn works with in-memory cache", async t => {
+    const cache = createFakeIdb({persistencePeriod: 5_000, copyOnReturn: true, memoryConfig: { maxItemsInMemory: 10 }});
+    const obj1 = {a: "test1", b: 1};
+    const copy = {...obj1};
+    await cache.set(obj1.a, obj1);
+    (await cache.get(obj1.a)).b = 2;
+    t.deepEqual(await cache.get(obj1.a), copy);
+    await cache.close();
+});
+
+test("copyOnReturn works with in-memory cache with getAll", async t => {
+    const cache = createFakeIdb({persistencePeriod: 5_000, copyOnReturn: true, memoryConfig: { maxItemsInMemory: 10 }});
+    const obj1 = {a: "test1", b: 1};
+    const obj2 = {a: "test2", b: 2};
+    const copy1 = {...obj1};
+    const copy2 = {...obj2};
+    await cache.set(obj1.a, obj1);
+    await cache.set(obj2.a, obj2);
+    (await cache.get(obj1.a)).b = -1;
+    (await cache.get(obj2.a)).b = -2;
+    t.deepEqual(await cache.get(obj1.a), copy1);
+    t.deepEqual(await cache.get(obj2.a), copy2);
+    await cache.close();
+});
+
+test("copyOnReturn works with in-memory cache with immediate persistence", async t => {
+    const cache = createFakeIdb({persistencePeriod: 0, copyOnReturn: true, memoryConfig: { maxItemsInMemory: 10 }});
+    const obj1 = {a: "test1", b: 1};
+    const copy = {...obj1};
+    await cache.set(obj1.a, obj1);
+    (await cache.get(obj1.a)).b = 2;
+    t.deepEqual(await cache.get(obj1.a), copy);
+    await cache.close();
+});
+

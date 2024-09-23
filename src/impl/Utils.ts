@@ -58,6 +58,16 @@ export function validateConfig(config?: LruIdbConfig): ValidatedLruIdbConfig {
                 throw new Error("numMemoryItemsToPurge must be a positive integer, got " + memory.numMemoryItemsToPurge);
         }
     }
+    const needCopy: boolean = (cfg.copyOnReturn === true || cfg.copyOnInsert === true) && (!!cfg.memoryConfig || cfg.persistencePeriod! > 0);
+    if (!needCopy) {
+        cfg.deepCopy = undefined;
+    } else {
+        cfg.deepCopy = cfg.deepCopy || globalThis.structuredClone;
+        if (cfg.deepCopy === undefined)
+            throw new Error("structuredClone not available, setting memoryConfig.copyOnReturn = true requires a custom deepCopy function.")
+    }
+    cfg.copyOnReturn = cfg.copyOnReturn ?? false;
+    cfg.copyOnInsert = cfg.copyOnInsert ?? false;
     const prefix = cfg.tablePrefix || "";
     cfg.itemsStorage = prefix + "Items";
     cfg.accessTimesStorage = prefix + "AccessTimes";
