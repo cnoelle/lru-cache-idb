@@ -14,6 +14,21 @@ export interface LruIdbConfig {
     databaseName?: string;
     
     /**
+     * Default: "".
+     * The prefix will be prepended to "Items" and "AccessTimes" to generate the names
+     * for the two IndexedDB object stores used.
+     */
+    tablePrefix?: string;
+
+    /**
+     * When using multiple caches with different table names but the same database in a single app, then
+     * it is more efficient to pass all the tables here, so they can be created right at the start. 
+     * This is not strictly required, however, if a table for some cache is missing it will be created
+     * later, resulting in an IndexedDB version update.
+     */
+    tablePrefixesUsed?: Array<string>;
+
+    /**
      * Maximum number of items to be kept in the store. Note that this is not enforced strictly,
      * a clean up operation takes place regularly to purge the cache from old entries.
      * 
@@ -51,12 +66,6 @@ export interface LruIdbConfig {
     cleanUpOrphanedPeriod?: Milliseconds;
 
     /**
-     * When the page visibility changes to false (e.g. the user switching to another tab), persist current lru state?
-     * Default: true
-     */
-//    persistOnVisibilityChange?: boolean;
-
-    /**
      * Mostly for testing.
      * Default: globalThis.indexedDB
      */
@@ -64,7 +73,6 @@ export interface LruIdbConfig {
         databaseFactory: IDBFactory;
         keyRange: /* Class<IDBKeyRange>*/ any;  // XXX can we really not avoid this?
     }
-    //database?: IDBFactory;
 
     /** Keep items in memory? */
     memoryConfig?: boolean|{
@@ -78,14 +86,40 @@ export interface LruIdbConfig {
          */
         numMemoryItemsToPurge?: number;
 
-        /**
-         * TODO not used yet
-         * By default uses structuredClone 
-         * @param object 
-         * @returns 
-         */
-        deepCopy?: (object: any) => any;
-    }
+    },
+
+    /**
+     * Return copies of the stored values if they come from memory, so that the caller
+     * can modify them without impacting the stored values 
+     * (there is no need to copy values restored from persistence).
+     * The function used to copy values is [`structuredClone`](https://developer.mozilla.org/en-US/docs/Web/API/structuredClone),
+     * unless a custom {@link deepCopy} function is provided.
+     * 
+     * If this is false and items are kept in memory (which can happen due to periodic persistence, see {@link persistencePeriod}, and/or 
+     * due to {@link memoryConfig}), then the caller should avoid modifying objects returned from the cache.
+     * 
+     * Default is false.
+     */
+    copyOnReturn?: boolean;
+    /**
+     * Copy values upon insertion.
+     * The function used to copy values is [`structuredClone`](https://developer.mozilla.org/en-US/docs/Web/API/structuredClone),
+     * unless a custom {@link deepCopy} function is provided.
+     * 
+     * If this is false and items are kept in memory (which can happen due to periodic persistence, see {@link persistencePeriod}, and/or 
+     * due to {@link memoryConfig}), then the caller should avoid modifying objects that have been passed to the cache.
+     * 
+     * Default is false.
+     */
+    copyOnInsert?: boolean;
+
+    /**
+     * Only relevant if {@link copyOnReturn} is true or {@link copyOnInsert} is true.
+     * By default it uses the global [`structuredClone`](https://developer.mozilla.org/en-US/docs/Web/API/structuredClone) function.
+     * @param object 
+     * @returns 
+     */
+    deepCopy?: (object: any) => any;
 
 }
 
@@ -225,9 +259,16 @@ export interface LruCacheIndexedDB<T> extends AsyncIterable<Array<string>> {
      */
     clear(options?: CacheRequestOptions): Promise<unknown>;
     /**
-     * Close the cache.
+     * Close the cache. Note that this will trigger the persistence, so it should be good practice to 
+     * close the cache explicitly before 
      */
     close(): Promise<unknown>;
+
+    /**
+     * If the configured persistence interval is positive, this method can be used
+     * to trigger an immediate persistence of the stored data.
+     */
+    persist(): Promise<unknown>;
 
     computedConfig(): LruIdbConfig;
 

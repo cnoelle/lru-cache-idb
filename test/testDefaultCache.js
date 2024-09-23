@@ -5,8 +5,9 @@ import { createCacheIdb } from "../dist/cache.js";
 let cnt = 0;
 
 function createFakeIdb(options) {
+    const dbName = options?.dbName || "Test" + cnt++;
     options = {
-        databaseName: "Test" + cnt++, 
+        databaseName: dbName, 
         ...options, 
         indexedDB: {
             databaseFactory: fakeIndexedDB,
@@ -41,6 +42,13 @@ test("Empty default cache works", async t => {
     for await (const key of defaultCache) {
         t.fail("Cache should not have any entries");
     }
+    await defaultCache.close();
+});
+
+test("Retrieving a non-existent value works with the default cache", async t => {
+    const defaultCache = createFakeIdb();
+    const result = await defaultCache.get("test");
+    t.is(result, undefined);
     await defaultCache.close();
 });
 
@@ -421,4 +429,236 @@ test.skip("Order of items works with in-memory updates and immediately persisted
     }
     await defaultCache.close();
 });
+
+test("Multiple caches in the same db work in parallel", async t => {
+    const dbName = "Test_conc1";
+    const key = "a";
+    const cache1 = createFakeIdb({dbName: dbName, tablePrefix: "A"});
+    const cache2 = createFakeIdb({dbName: dbName, tablePrefix: "B"});
+    await Promise.all([cache1.set(key, "test"), cache2.set(key, "test2")]);
+    const [r1, r2] = await Promise.all([cache1.get(key), cache2.get(key)]);
+    t.is(r1, "test");
+    t.is(r2, "test2");
+    await Promise.all([cache1.close(), cache2.close()]);
+});
+
+test("Multiple caches in the same db work in parallel with immediate persistence", async t => {
+    const dbName = "Test_conc2";
+    const key = "a";
+    const cache1 = createFakeIdb({dbName: dbName, tablePrefix: "A", persistencePeriod: 0});
+    const cache2 = createFakeIdb({dbName: dbName, tablePrefix: "B", persistencePeriod: 0});
+    await Promise.all([cache1.set(key, "test"), cache2.set(key, "test2")]);
+    const [r1, r2] = await Promise.all([cache1.get(key), cache2.get(key)]);
+    t.is(r1, "test");
+    t.is(r2, "test2");
+    await Promise.all([cache1.close(), cache2.close()]);
+});
+
+test("Multiple caches in the same db work sequentially with immediate persistence", async t => {
+    const dbName = "Test_conc3";
+    const key = "a";
+    const cache1 = createFakeIdb({dbName: dbName, tablePrefix: "A", persistencePeriod: 0});
+    const cache2 = createFakeIdb({dbName: dbName, tablePrefix: "B", persistencePeriod: 0});
+    await cache1.set(key, "test");
+    await cache2.set(key, "test2");
+    const [r1, r2] = await Promise.all([cache1.get(key), cache2.get(key)]);
+    t.is(r1, "test");
+    t.is(r2, "test2");
+    await Promise.all([cache1.close(), cache2.close()]);
+});
+
+test("Many caches in the same db work sequentially with immediate persistence", async t => {
+    const numTables = 10;
+    const dbName = "Test_conc4";
+    const key = "a";
+    const caches = new Array(numTables).fill(undefined).map((_, idx) => createFakeIdb({dbName: dbName, tablePrefix: idx + "", persistencePeriod: 0}));
+    let idx = 0;
+    for (const cache of caches) {
+        await cache.set(key, "test" + idx++);    
+    }
+    const results = await Promise.all(caches.map(cache => cache.get(key)));
+    results.forEach((result, idx) => t.is(result, "test" + idx));
+    await Promise.all(caches.map(cache => cache.close()));
+});
+
+test("Many caches in the same db work sequentially with immediate persistence with pre-allocated tables", async t => {
+    const numTables = 10;
+    const dbName = "Test_conc5";
+    const key = "a";
+    const tablePrefixes = new Array(numTables).fill(undefined).map((_, idx) => idx + "");
+    const caches = new Array(numTables).fill(undefined).map((_, idx) => createFakeIdb({
+        dbName: dbName, 
+        tablePrefix: tablePrefixes[idx], 
+        tablePrefixesUsed: tablePrefixes,
+        persistencePeriod: 0
+    }));
+    let idx = 0;
+    for (const cache of caches) {
+        await cache.set(key, "test" + idx++);    
+    }
+    const results = await Promise.all(caches.map(cache => cache.get(key)));
+    results.forEach((result, idx) => t.is(result, "test" + idx));
+    await Promise.all(caches.map(cache => cache.close()));
+});
+
+test("Many caches in the same db work sequentially with immediate persistence with partly pre-allocated tables", async t => {
+    const numTables = 10;
+    const dbName = "Test_conc6";
+    const key = "a";
+    const tablePrefixes = new Array(numTables).fill(undefined).map((_, idx) => idx + "");
+    const caches = new Array(numTables).fill(undefined).map((_, idx) => createFakeIdb({
+        dbName: dbName, 
+        tablePrefix: tablePrefixes[idx], 
+        tablePrefixesUsed: tablePrefixes.slice(0, Math.round(numTables/2)),
+        persistencePeriod: 0
+    }));
+    let idx = 0;
+    for (const cache of caches) {
+        await cache.set(key, "test" + idx++);    
+    }
+    const results = await Promise.all(caches.map(cache => cache.get(key)));
+    results.forEach((result, idx) => t.is(result, "test" + idx));
+    await Promise.all(caches.map(cache => cache.close()));
+});
+
+test("Many caches in the same db work in parallel with immediate persistence", async t => {
+    const numTables = 10;
+    const dbName = "Test_conc7";
+    const key = "a";
+    const caches = new Array(numTables).fill(undefined).map((_, idx) => createFakeIdb({dbName: dbName, tablePrefix: idx + "", persistencePeriod: 0}));
+    await Promise.all(caches.map((cache, idx) => cache.set(key, "test" + idx)));
+    const results = await Promise.all(caches.map(cache => cache.get(key)));
+    results.forEach((result, idx) => t.is(result, "test" + idx));
+    await Promise.all(caches.map(cache => cache.close()));
+});
+
+test("Multiple caches in different dbs work in parallel", async t => {
+    const dbName = "Test_conc";
+    const key = "a";
+    const cache1 = createFakeIdb({dbName: dbName + "_a", tablePrefix: "A"});
+    const cache2 = createFakeIdb({dbName: dbName + "_b", tablePrefix: "B"});
+    await Promise.all([cache1.set(key, "test"), cache2.set(key, "test2")]);
+    const [r1, r2] = await Promise.all([cache1.get(key), cache2.get(key)]);
+    t.is(r1, "test");
+    t.is(r2, "test2");
+
+    await Promise.all([cache1.close(), cache2.close()]);
+});
+
+test("Many caches in different dbs work sequentially with immediate persistence", async t => {
+    const numTables = 10;
+    const key = "a";
+    const caches = new Array(numTables).fill(undefined).map((_, idx) => createFakeIdb({tablePrefix: "A", persistencePeriod: 0}));
+    let idx = 0;
+    for (const cache of caches) {
+        await cache.set(key, "test" + idx++);    
+    }
+    const results = await Promise.all(caches.map(cache => cache.get(key)));
+    results.forEach((result, idx) => t.is(result, "test" + idx));
+    await Promise.all(caches.map(cache => cache.close()));
+});
+
+test("Cache persistence works with immediate persistence", async t => {
+    const dbName = "PersistenceTest1";
+    const cache = createFakeIdb({dbName: dbName, persistencePeriod: 0});
+    const obj1 = {a: "test1", b: 1};
+    const obj2 = {a: "test2", b: 2};
+    await cache.set(obj1.a, obj1);
+    await cache.set(obj2.a, obj2);
+    t.is(await cache.size(), 2);
+    await cache.close();
+    const cache2 = createFakeIdb({dbName: dbName, persistencePeriod: 0});
+    t.is(await cache.size(), 2);
+    t.like(await cache2.getAllKeys(), [obj1.a, obj2.a]);
+    await cache2.close();
+});
+
+test("Cache persistence works with explicit close", async t => {
+    const dbName = "PersistenceTest2";
+    const cache = createFakeIdb({dbName: dbName, persistencePeriod: 5_000});
+    const obj1 = {a: "test1", b: 1};
+    const obj2 = {a: "test2", b: 2};
+    await cache.set(obj1.a, obj1);
+    await cache.set(obj2.a, obj2);
+    t.is(await cache.size(), 2);
+    await cache.persist();
+    await cache.close();  // the close call ensures that the persistence is triggered 
+    const cache2 = createFakeIdb({dbName: dbName, persistencePeriod: 5_000});
+    t.is(await cache.size(), 2);
+    t.like(await cache2.getAllKeys(), [obj1.a, obj2.a]);
+    await cache2.close();
+});
+
+test("copyOnInsert works", async t => {
+    const cache = createFakeIdb({persistencePeriod: 5_000, copyOnInsert: true});
+    const obj1 = {a: "test1", b: 1};
+    const copy = {...obj1};
+    await cache.set(obj1.a, obj1);
+    obj1.b = 2;
+    t.deepEqual(await cache.get(obj1.a), copy);
+    await cache.close();
+});
+
+test("copyOnInsert works with setAll", async t => {
+    const cache = createFakeIdb({persistencePeriod: 5_000, copyOnInsert: true});
+    const obj1 = {a: "test1", b: 1};
+    const obj2 = {a: "test2", b: 2};
+    const copy1 = {...obj1};
+    const copy2 = {...obj2};
+    await cache.setAll(new Map([[obj1.a, obj1], [obj2.a, obj2]]));
+    obj1.b = -1;
+    obj2.b = -2;
+    t.deepEqual(await cache.get(obj1.a), copy1);
+    t.deepEqual(await cache.get(obj2.a), copy2);
+    await cache.close();
+});
+
+// copyOnInsert actually should be irrelevant in this case
+test("copyOnInsert works with immediate persistence", async t => {
+    const cache = createFakeIdb({persistencePeriod: 0, copyOnInsert: true});
+    const obj1 = {a: "test1", b: 1};
+    const copy = {...obj1};
+    await cache.set(obj1.a, obj1);
+    obj1.b = 2;
+    t.deepEqual(await cache.get(obj1.a), copy);
+    await cache.close();
+});
+
+
+test("copyOnReturn works", async t => {
+    const cache = createFakeIdb({persistencePeriod: 5_000, copyOnReturn: true});
+    const obj1 = {a: "test1", b: 1};
+    const copy = {...obj1};
+    await cache.set(obj1.a, obj1);
+    (await cache.get(obj1.a)).b = 2;
+    t.deepEqual(await cache.get(obj1.a), copy);
+    await cache.close();
+});
+
+test("copyOnReturn works with getAll", async t => {
+    const cache = createFakeIdb({persistencePeriod: 5_000, copyOnReturn: true});
+    const obj1 = {a: "test1", b: 1};
+    const obj2 = {a: "test2", b: 2};
+    const copy1 = {...obj1};
+    const copy2 = {...obj2};
+    await cache.set(obj1.a, obj1);
+    await cache.set(obj2.a, obj2);
+    (await cache.get(obj1.a)).b = -1;
+    (await cache.get(obj2.a)).b = -2;
+    t.deepEqual(await cache.get(obj1.a), copy1);
+    t.deepEqual(await cache.get(obj2.a), copy2);
+    await cache.close();
+});
+
+// copyOnReturn actually should be irrelevant in this case
+test("copyOnReturn works with immediate persistence", async t => {
+    const cache = createFakeIdb({persistencePeriod: 0, copyOnReturn: true});
+    const obj1 = {a: "test1", b: 1};
+    const copy = {...obj1};
+    await cache.set(obj1.a, obj1);
+    (await cache.get(obj1.a)).b = 2;
+    t.deepEqual(await cache.get(obj1.a), copy);
+    await cache.close();
+});
+
 

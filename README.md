@@ -1,6 +1,6 @@
 # lru-cache-idb
 
-A least-recently-used (LRU) cache for web applications based on IndexedDB.
+A least-recently-used (LRU) cache for web applications, based on IndexedDB.
 
 ## Introduction
 
@@ -13,6 +13,8 @@ Design:
 * *Memory layer*: besides the data stored in IndexedDB it is possible to configure an additional memory cache, typically retaining a subset of cached items in memory.
 * *Dependency-free*: no third-party Javascript libraries used.
 * *Modern Javascript*: implemented in Typescript as an ESM module.
+
+Demo: https://cnoelle.github.io/lru-cache-idb/
 
 ## Getting started
 
@@ -38,6 +40,8 @@ const cache = createCacheIdb({database: "MySpecialDb", maxItems: 1000, memoryCon
 
 This is the database name in IndexedDB, the default being "LruIdbItemsCache". The existing databases/caches on a page can be viewed in the browser developer console, e.g. under Web Storage->Indexed DB (Firefox) or Application->Storage->IndexedDB (Chrome).
 
+API documentation: https://cnoelle.github.io/lru-cache-idb/docs/index.html
+
 ## Develop
 
 After cloning the repository, install the dev dependencies: `npm install`.
@@ -50,7 +54,7 @@ npm run build
 
 ### Demo app
 
-This repository contains a sample HTML file *index.html* using the library. For instance, start a dev server using `npx http-server`, then the page will be available in the browser at http://localhost:8080 (check port in console output). Build first, index.html refers to the compiled Javascript files in the *dist/* folder.
+This repository contains a sample HTML file *index.html* using the library. For instance, start a dev server using `npx http-server`, then the page will be available in the browser at http://localhost:8080 (check port in console output). Build first, index.html refers to the compiled Javascript files in the *dist/* folder. The demo app can also be found at https://cnoelle.github.io/lru-cache-idb/.
 
 ### Tests
 
@@ -68,3 +72,13 @@ npx ava ./test/testDefaultCache.js
 ```
 
 In order to run a single test in a single file, replace `test("...", async t => {` at the beginning of the test by `test.only("...", async t => {`.
+
+### Generate documentation 
+
+Documentation is generated using typedoc. Run
+
+```
+npm run docs
+```
+
+and find the updated documentation in the *docs* subfolder.

@@ -2,7 +2,7 @@ import { CacheRequestOptions, CacheWriteOptions, IterationOptions, LruCacheIndex
 import { PeriodicTask } from "./PeriodicTask.js";
 import { PersistenceOrchestrator } from "./PersistenceOrchestrator.js";
 import { Table } from "./Table.js";
-import { idle, TransformIterator, validateConfig } from "./Utils.js";
+import { idle, TransformIterator, validateConfig, ValidatedLruIdbConfig } from "./Utils.js";
 
 export type MillisecondsSinceEpoch = number;
 
@@ -18,17 +18,25 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
     readonly #indexedDB: IDBFactory;
     readonly #IDBKeyRange: any;
     readonly #database: string;
-    readonly #dbVersion: number = 1;
     readonly #itemsStorage: string;
     readonly #accessTimesStorage: string;
-    readonly #config: LruIdbConfig;
+    readonly #config: ValidatedLruIdbConfig;
     readonly #items: Table<T>;
     readonly #accessTimes: Table<{t: MillisecondsSinceEpoch}>;
     readonly #persistenceOrchestrator: PersistenceOrchestrator|undefined;
     readonly #dbLoader: (options?: CacheRequestOptions) => Promise<IDBDatabase>;
+    
+    readonly #initTimer: number;
+    // memory cache
+    readonly #memory: Map<string, CachedItem<T>>|undefined;
+    readonly #maxMemorySize: number|undefined;
+    readonly #numMemoryItemsToPurge: number|undefined;
+    readonly #copyOnInsert: boolean;
+    readonly #copyOnReturn: boolean;
+    readonly #deepCopy: ((obj: T) => T)|undefined;
+    #dbInitialized: boolean = false;
 
     readonly #eviction: PeriodicTask|undefined;
-    // TODO interruptible?
     readonly #evictionTask = async () => {
         let deadline = await idle();
         const count = await this.#items.size();
@@ -77,12 +85,6 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
         }
     };
 
-    readonly #initTimer: number;
-    // memory cache
-    readonly #memory: Map<string, CachedItem<T>>|undefined;
-    readonly #maxMemorySize: number|undefined;
-    readonly #numMemoryItemsToPurge: number|undefined;
-
     constructor(config?: LruIdbConfig) {
         this.#config = validateConfig(config);
         this.#maxMemorySize = (typeof(this.#config.memoryConfig) === "object") ? this.#config.memoryConfig.maxItemsInMemory || undefined : undefined;
@@ -90,14 +92,17 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
         this.#numMemoryItemsToPurge = this.#maxMemorySize! > 0 ? this.#config.numItemsToPurge || Math.max(1, Math.round(this.#maxMemorySize!/4)) : undefined;
         this.#indexedDB = this.#config.indexedDB?.databaseFactory!;
         this.#IDBKeyRange = this.#config.indexedDB?.keyRange!;
+        this.#deepCopy = this.#config.deepCopy;
+        this.#copyOnReturn = this.#config.copyOnReturn!;
+        this.#copyOnInsert = this.#config.copyOnInsert!;
         this.#database = this.#config.databaseName!;
-        this.#itemsStorage = "Items";
-        this.#accessTimesStorage = "AccessTimes";
+        this.#itemsStorage = this.#config.itemsStorage;
+        this.#accessTimesStorage = this.#config.accessTimesStorage;
         const dbLoader = (options?: CacheRequestOptions) => this.#openDb(options);
         this.#dbLoader = dbLoader;
-        this.#items = new Table<T>({IDBKeyRange: this.#IDBKeyRange, id: "CachedItems", database: this.#database, objectStore: this.#itemsStorage, persistencePeriod: this.#config.persistencePeriod, 
+        this.#items = new Table<T>({IDBKeyRange: this.#IDBKeyRange, id: this.#itemsStorage, database: this.#database, objectStore: this.#itemsStorage, persistencePeriod: this.#config.persistencePeriod, 
             dbLoader: dbLoader});
-        this.#accessTimes = new Table<{t: MillisecondsSinceEpoch}>({IDBKeyRange: this.#IDBKeyRange, id: "CachedItemAccessTime", database: this.#database, objectStore: this.#accessTimesStorage, 
+        this.#accessTimes = new Table<{t: MillisecondsSinceEpoch}>({IDBKeyRange: this.#IDBKeyRange, id: this.#accessTimesStorage, database: this.#database, objectStore: this.#accessTimesStorage, 
             indexes: new Map([["time", {key: "t", unique: false}]]), persistencePeriod: this.#config.persistencePeriod,
             dbLoader: dbLoader});
         const cleanUpNeeded: boolean = this.#config.maxItems! > 0 && this.#config.evictionPeriod! > 0
@@ -109,12 +114,18 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
         this.#initTimer = setTimeout(() => this.#cleanUpOrphaned.trigger(), 20_000);
     }
 
-    computedConfig() {
-        const copy: LruIdbConfig = {...this.#config};
+    persist(): Promise<unknown> {
+        return this.#persistenceOrchestrator?.triggerImmediate() || Promise.resolve();
+    }
+
+    computedConfig(): LruIdbConfig {
+        const copy: ValidatedLruIdbConfig = {...this.#config};
+        // some defensive copies...
         if (copy.indexedDB)
             copy.indexedDB = {...copy.indexedDB!};
         if (typeof(copy.memoryConfig) === "object")
             copy.memoryConfig = {...copy.memoryConfig};
+        copy.allRequestedObjectStorages = [...copy.allRequestedObjectStorages];
         return copy
     }
 
@@ -131,14 +142,17 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
             item = entry!.value;
             if (!noUpdate)
                 entry!.lastAccessed = now;
+            if (this.#copyOnReturn)
+                item = this.#deepCopy!(item);
         }
-        item = item || await this.#items.get(key, options);
+        item = item || await this.#items.get(key, {...options, deepCopy: this.#copyOnReturn ? this.#deepCopy! : undefined});
         if (item && !noUpdate) {
             // do not wait
             this.#accessTimes.set(key, {t: now}, options).catch(e => console.log("Failed to set access time for", key, e));
-            if (!inMemory)
-                this.#memory?.set(key, {key: key, value: item, lastAccessed: now});
+            if (!inMemory) 
+                this.#memory?.set(key, {key: key, value: this.#copyOnReturn ? this.#deepCopy!(item) : item, lastAccessed: now}); 
         }
+
         return item;
     }
 
@@ -152,14 +166,14 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
                 .filter(key => this.#memory?.has(key))
                 .map(key => [key, this.#memory?.get(key)!] as [string, CachedItem<T>])
             if (entries.length > 0) {
-                result = new Map(entries.map(([key, value]) => [key, value.value]));
+                result = new Map(entries.map(([key, value]) => [key, this.#copyOnReturn ? this.#deepCopy!(value.value) : value.value]));
                 entries.map(([key, value]) => value).forEach(val => val.lastAccessed = now);
                 keys = keys.filter(key => !result!.has(key));
                 if (keys.length === 0)
                     return result;
             }
         }
-        const persistent = await this.#items.getAll(keys, options);
+        const persistent = await this.#items.getAll(keys, {...options, deepCopy: this.#copyOnReturn ? this.#deepCopy! : undefined});
         if (result)
             persistent.forEach((value, key) => result!.set(key, value));
         else
@@ -170,8 +184,9 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
         this.#accessTimes.setAll(accessTimes, options).catch(e => console.log("Error setting lru-idb access times", e));  // do not wait
         if (this.#memory) {
             persistent.forEach((value, key) => {
-                if (value)
-                    this.#memory?.set(key, {key: key, value: value, lastAccessed: now});
+                if (value) {
+                    this.#memory?.set(key, {key: key, value: this.#copyOnReturn ? this.#deepCopy!(value) : value, lastAccessed: now});
+                }
             });
         }
         return result;
@@ -183,12 +198,13 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
         if (this.#persistenceOrchestrator && !options?.persistImmediately) { 
             const options2 = {persistence: this.#persistenceOrchestrator};
             options = options ? {...options, ...options2} : options2 as any;
-            await Promise.all([this.#items.set(key, value, options), this.#accessTimes.set(key, {t: now}, options)]);
+            await Promise.all([this.#items.set(key, value, this.#copyOnInsert ? {...options, deepCopy:  this.#deepCopy} : options), this.#accessTimes.set(key, {t: now}, options)]);
         } else { // case 2: immediate persistence
             const entries = new Map<Table<any>, Map<string, any>>([[this.#items, new Map([[key, value]])], [this.#accessTimes, new Map([[key, {t: now}]])]]);
             await PersistenceOrchestrator.persistImmediately(entries, await this.#dbLoader(), options);
         }
-        this.#memory?.set(key, {key: key, value: value, lastAccessed: now});
+        if (this.#memory)
+            this.#memory?.set(key, {key: key, value: this.#copyOnInsert ? this.#deepCopy!(value) : value, lastAccessed: now});
         this.#cleanUpAfterSet();
         return undefined;
     }
@@ -203,13 +219,13 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
         if (this.#persistenceOrchestrator && !options?.persistImmediately) { 
             const options2 = {persistence: this.#persistenceOrchestrator};
             options = options ? {...options, ...options2} : options2 as any;
-            await Promise.all([this.#items.setAll(entries, options), this.#accessTimes.setAll(accessTimes, options)]);
+            await Promise.all([this.#items.setAll(entries, this.#copyOnInsert ? {...options, deepCopy:  this.#deepCopy} : options), this.#accessTimes.setAll(accessTimes, options)]);
         } else { // case 2: immediate persistence
             const fullEntries = new Map<Table<any>, Map<string, any>>([[this.#items, entries], [this.#accessTimes, accessTimes]]);
             await PersistenceOrchestrator.persistImmediately(fullEntries, await this.#dbLoader(), options);
         }
         if (this.#memory)
-            entries.forEach((value, key) => this.#memory?.set(key, {key: key, value: value, lastAccessed: now}));
+            entries.forEach((value, key) => this.#memory?.set(key, {key: key, value: this.#copyOnInsert ? this.#deepCopy!(value) : value, lastAccessed: now}));
         this.#cleanUpAfterSet();
         return undefined;
     }
@@ -341,19 +357,64 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
         keysSorted.forEach(key => this.#memory!.delete(key));
     }
 
-    readonly #openDb = (options?: CacheRequestOptions): Promise<IDBDatabase> => {
+    // must only be called from onupgradeneeded callback
+    #createObjectStores(db: IDBDatabase) {
+        const objectStores = db.objectStoreNames;
+        for (const store of this.#config.allRequestedObjectStorages) {
+            if (!objectStores.contains(store)) {
+                const newStore = db.createObjectStore(store); 
+                if (store.endsWith("AccessTimes"))
+                    newStore.createIndex("time", "t", {unique: false});
+            }
+        }
+        this.#dbInitialized = true;
+    }
+
+    #initializeDb = async () => {
+        let nextDbVersion: number|undefined = undefined;
+        while (!this.#dbInitialized) {
+            const initPromise: Promise<[number, boolean]> = new Promise<[number, boolean]>((resolve, reject) => {
+                const request: IDBOpenDBRequest = this.#indexedDB.open(this.#database, nextDbVersion);  // open without explicit version initially, to get the latest
+                request.onupgradeneeded = (event) => this.#createObjectStores((event.target as any).result);
+                request.onerror = reject;
+                request.onblocked = evt => {
+                    // TODO close at some point?
+                    //console.log("DB open request is blocked for db", this.#database, ", table", this.#itemsStorage, /*evt*/);
+                }
+                request.onsuccess = event => {
+                    const db = (event.target as any).result as IDBDatabase;
+                    if (!this.#dbInitialized) {
+                        const objectStores = db.objectStoreNames;
+                        const hasItems = objectStores.contains(this.#itemsStorage);
+                        const hasAccessTimes = objectStores.contains(this.#accessTimesStorage);
+                        if (hasItems && hasAccessTimes)
+                            this.#dbInitialized = true;
+                    }
+                    resolve([db.version, this.#dbInitialized]);
+                    db.close();
+                };
+            });
+            const [dbVersion, initialized] = await initPromise;
+            nextDbVersion = dbVersion + 1;
+        }
+    }
+
+
+    readonly #openDb = async (options?: CacheRequestOptions): Promise<IDBDatabase> => {
+        if (!this.#dbInitialized)
+            await this.#initializeDb();
         const dbPromise: Promise<IDBDatabase> = new Promise((resolve, reject) => {
-            const request: IDBOpenDBRequest = this.#indexedDB.open(this.#database, this.#dbVersion);
-            request.onupgradeneeded = (event) => {
-                const db: IDBDatabase = (event.target as any).result;
-                const objectStore = db.createObjectStore(this.#itemsStorage /*, { keyPath: "key" }*/);
-                const timesStore = db.createObjectStore(this.#accessTimesStorage);
-                timesStore.createIndex("time", "t", {unique: false});
-            };
+            const request: IDBOpenDBRequest = this.#indexedDB.open(this.#database /*, this.#dbVersion*/);  // open without explicit version, to get the latest
             request.onerror = reject;
             options?.signal?.addEventListener("abort", reject, {once: true});
             request.onsuccess = event => {
-                resolve((event.target as any).result as IDBDatabase);
+                const db = (event.target as any).result as IDBDatabase;
+                // someone else requests a version update; wait a few ms to allow for all transactions within this context to start, then close
+                // we never store db connections for reuse anyway
+                // https://developer.mozilla.org/en-US/docs/Web/API/IDBDatabase/versionchange_event
+                // https://potentpages.com/web-design/javascript/indexeddb-api-with-javascript                
+                db.onversionchange = () => setTimeout(() => db.close(), 25);
+                resolve(db);
                 options?.signal?.removeEventListener("abort", reject);
             };
         });

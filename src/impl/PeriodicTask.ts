@@ -51,6 +51,10 @@ export class PeriodicTask {
         this.#taskTimer = globalThis.setTimeout(() => this.#syncedTask(), this.#period);
     }
 
+    triggerImmediate(): Promise<unknown> {
+        return this.#syncedTask();
+    }
+
     async close(options?: {runTask?: boolean}): Promise<unknown> {
         if (options?.runTask)
             await this.#syncedTask();
