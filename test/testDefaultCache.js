@@ -106,6 +106,7 @@ test("set() works for default cache with immediate persistence", async t => {
     await defaultCache.close();
 });
 
+
 /**
  * ============================
  * keys iteration tests below
@@ -385,6 +386,40 @@ test("Order of items works with in-memory updates in default cache", async t => 
         }
     }
     await defaultCache.close();
+});
+
+test("maxItems = 0 works", async t => {
+    const cache = createFakeIdb({maxItems: 0});
+    const obj1 = {a: "test1", b: 1};
+    await cache.set(obj1.a, obj1);
+    await waitForClock();
+    const result = await cache.get(obj1.a);
+    t.deepEqual(result, obj1);
+    await cache.close();
+});
+
+test("maxItems = 0 and evictionPeriod = 0 does not evict items", async t => {
+    const cache = createFakeIdb({maxItems: 0, evictionPeriod: 0});
+    const values = new Map(new Array(10_000).fill(undefined).map((_, idx) => { return {a: "test" + idx, b: idx}; }).map(obj => [obj.a, obj]));
+    await cache.setAll(values);
+    await waitForClock();
+    for (const key of values.keys()) {
+        const result = await cache.get(key);
+        t.deepEqual(result, values.get(key));
+    }
+    await cache.close();
+});
+
+test("maxItems = 0 and evictionPeriod = 1 does not evict items", async t => {
+    const cache = createFakeIdb({maxItems: 0, evictionPeriod: 1});
+    const values = new Map(new Array(10_000).fill(undefined).map((_, idx) => { return {a: "test" + idx, b: idx}; }).map(obj => [obj.a, obj]));
+    await cache.setAll(values);
+    await waitForClock();
+    for (const key of values.keys()) {
+        const result = await cache.get(key);
+        t.deepEqual(result, values.get(key));
+    }
+    await cache.close();
 });
 
 // not possible without adding significantly more requests; but this might be acceptable.

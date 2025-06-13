@@ -38,6 +38,8 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
 
     readonly #eviction: PeriodicTask|undefined;
     readonly #evictionTask = async () => {
+        if (this.#config.maxItems! <= 0)
+            return;
         let deadline = await idle();
         const count = await this.#items.size();
         if (!(count > this.#config.maxItems!))
@@ -236,7 +238,7 @@ export class LruCacheIndexedDBImpl<T> implements LruCacheIndexedDB<T> {
     #cleanUpAfterSet() {
         this.#eviction?.trigger();
         idle().then(() => {
-            if (!this.#eviction)
+            if (!this.#eviction && this.#config.maxItems! > 0)
                 this.#evictionTask().catch(e => console.log("Error in lru-idb clean up", e)); 
             if (this.#memory?.size! > this.#maxMemorySize!)
                 this.#purgeMemory();

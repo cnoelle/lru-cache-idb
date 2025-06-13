@@ -35,12 +35,12 @@ export function validateConfig(config?: LruIdbConfig): ValidatedLruIdbConfig {
         }
     if (typeof(config?.memoryConfig) === "object")
         cfg.memoryConfig = {...config.memoryConfig};
-    if (!(cfg.maxItems! > 0) || !Number.isInteger(cfg.maxItems))
-        throw new Error("maxItems must be a positive integer, got " + config?.maxItems);
-    if (cfg.numItemsToPurge === undefined)
+    if (!Number.isInteger(cfg.maxItems))
+        throw new Error("maxItems must be an integer, got " + config?.maxItems);
+    if (cfg.numItemsToPurge === undefined && cfg.maxItems! > 0)
         cfg.numItemsToPurge = Math.min(50, Math.max(Math.round(cfg.maxItems!/4), 1));
-    if (!(cfg.numItemsToPurge > 0))
-        throw new Error("numItemsToPurge must be a positive integer, got " + config?.maxItems);
+    if (cfg.maxItems! > 0 &&  !(cfg.numItemsToPurge! > 0))
+        throw new Error("numItemsToPurge must be a positive integer, got " + config?.numItemsToPurge);
     if (cfg.memoryConfig === true)
         cfg.memoryConfig =  {maxItemsInMemory: 100};
     if (typeof(cfg.memoryConfig) === "object") {
