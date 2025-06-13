@@ -403,6 +403,8 @@ test("maxItems = 0 and evictionPeriod = 0 does not evict items", async t => {
     const values = new Map(new Array(10_000).fill(undefined).map((_, idx) => { return {a: "test" + idx, b: idx}; }).map(obj => [obj.a, obj]));
     await cache.setAll(values);
     await waitForClock();
+    cache.set("dummy", {a: "dummy", b: 10_001});
+    await waitForClock();
     for (const key of values.keys()) {
         const result = await cache.get(key);
         t.deepEqual(result, values.get(key));
@@ -414,6 +416,8 @@ test("maxItems = 0 and evictionPeriod = 1 does not evict items", async t => {
     const cache = createFakeIdb({maxItems: 0, evictionPeriod: 1});
     const values = new Map(new Array(10_000).fill(undefined).map((_, idx) => { return {a: "test" + idx, b: idx}; }).map(obj => [obj.a, obj]));
     await cache.setAll(values);
+    await waitForClock();
+    cache.set("dummy", {a: "dummy", b: 10_001});
     await waitForClock();
     for (const key of values.keys()) {
         const result = await cache.get(key);
